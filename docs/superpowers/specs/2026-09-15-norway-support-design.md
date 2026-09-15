@@ -109,7 +109,7 @@ This reproduces every existing label exactly (`"026 (Canton, MI)"`, `"003 (Richm
 
 ### 4. `inRange` in stock projections (`src/services/ikea.ts`)
 
-- Type `StockCashCarry` gains `range?: { inRange: boolean }`.
+- Type `StockCashCarry` gains `range?: { inRange: boolean }`, and `availability` becomes optional (`availability?: StockAvailability`) because the API omits it for out-of-range rows; every reader already optional-chains, so the compiler now enforces what the comment states.
 - `projectStock` returns a new field `inRange: boolean | null` (`a?.buyingOption?.cashCarry?.range?.inRange ?? null`) directly after `availableForCashCarry`.
 - `projectMultiItemStock` rows gain the same field; `null` in the 405 and not-found branches.
 - No synthetic error entry. The field plus the tool descriptions ("`inRange: false` means the item is not sold at that store or in that market") are enough for a client to explain the difference between "out of stock" and "not sold here".
@@ -119,7 +119,7 @@ This reproduces every existing label exactly (`"026 (Canton, MI)"`, `"003 (Richm
 ### 5. Tools
 
 - Hand-written JSON schemas: every `countryCode` `enum` becomes `[...COUNTRY_CODES]` so it cannot drift from the zod enum. On `search_products` and `get_product_details`, `langCode` loses `default: "en"` and gains a `description`: `"Two-letter language code. Defaults to the country's language: en for US and CA, no for NO."`; `countryCode` gets a description and its JSON default is corrected from `"us"` to `"US"` (the zod default; harmless either way because input is upper-cased). `check_store_stock`'s JSON default gets the same one-character correction.
-- Descriptions: replace `('US' or 'CA')` with `('US', 'CA' or 'NO')` in `list_stores`, `compare_store_stock`, `find_best_store_for_item`, `find_best_store_for_cart`. `check_store_stock`, `compare_store_stock` and `check_multi_item_stock` descriptions mention `inRange`.
+- Descriptions: replace `('US' or 'CA')` with `('US', 'CA' or 'NO')` in `list_stores`, `compare_store_stock`, `find_best_store_for_item`, `find_best_store_for_cart`. `check_store_stock`, `compare_store_stock`, `check_multi_item_stock` and `check_cart_availability` descriptions mention `inRange`.
 - `list_stores`: iterate `STORES` (filtered by country when given) and emit `{ storeId, storeLabel, countryCode }` from the record. The nested-ternary CA set is deleted. Output shape unchanged.
 - `find_best_store_for_item`, `find_best_store_for_cart`: `Object.keys(STORE_LABELS)` → `allStoreIds()`.
 - `compare_store_stock`: the `as "US" | "CA"` cast on `countryCode` becomes `as CountryCode` (it still compiled after widening, but lied for `NO`); the `apiCountry` lowercasing is left for issue #11.

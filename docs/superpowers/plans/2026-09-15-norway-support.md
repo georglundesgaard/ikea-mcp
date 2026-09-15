@@ -678,7 +678,7 @@ Expected: type errors that `range` does not exist on the cash-carry type and tha
 
 In `src/services/ikea.ts`:
 
-In `interface StockCashCarry`, add after `updateDateTime: string;`:
+In `interface StockCashCarry`, change `availability: StockAvailability;` to `availability?: StockAvailability; // omitted when range.inRange is false` (every reader already optional-chains; two test helpers that spread or index the fixture's availability need a `!` assertion), and add after `updateDateTime: string;`:
 
 ```ts
   /** inRange false = item not sold at this store / in this market; availability is then omitted. */
