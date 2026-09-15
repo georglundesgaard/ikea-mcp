@@ -11,7 +11,7 @@ Make Norway a first-class country for every tool, on par with `US` and `CA`: the
 - Using the country-wide `/ru/{cc}` availabilities endpoint (issue #18).
 - Exposing city/region as separate fields in `list_stores` output, or a `type` field for non-stock locations (rest of issue #10).
 - Removing the dead `countryCode` parameter from `check_store_stock` / `getStoreStock` (issue #11).
-- Fixing the unguarded property chain in `check_cart_availability` (issue #1). This PR does not touch that file.
+- Deduplicating `check_cart_availability`'s copy of the multi-item projection (issue #1). This PR only adds the minimal null guard there (see §4), because the cross-market case Norway introduces makes the crash reachable in normal use.
 - Other countries. After this change they are data-only additions, each needing its own verification pass.
 - A version bump. The upstream maintainer assigns versions.
 
@@ -53,6 +53,8 @@ export type CountryCode = (typeof COUNTRY_CODES)[number];
 
 export const DEFAULT_LANG_CODE: Record<CountryCode, string> = { US: "en", CA: "en", NO: "no" };
 
+export function isCountryCode(value: string): value is CountryCode;
+
 /** Default search language for a country; "en" for countries outside the catalog. */
 export function defaultLangCode(countryCode: string): string;
 ```
@@ -68,6 +70,7 @@ export interface StoreRecord {
   storeId: string;
   /** Store name when it differs from the city (Norwegian stores). */
   name?: string;
+  /** For US/CA the city from the store page; for NO the metropolitan area the store is known by, not the postal place. */
   city: string;
   /** State or province code (US, CA). */
   region?: string;
@@ -78,6 +81,7 @@ export const STORES: readonly StoreRecord[];
 
 Derived, exported, and kept for backward compatibility:
 
+- `storeLabelFor(store: StoreRecord): string` — the label rule below.
 - `STORE_LABELS: Record<string, string>` — `storeId → label`.
 - `storeLabel(storeId): string | undefined`.
 - `storeIdsByCountry(countryCode: CountryCode): string[]` — declaration order.
@@ -109,15 +113,16 @@ This reproduces every existing label exactly (`"026 (Canton, MI)"`, `"003 (Richm
 - `projectStock` returns a new field `inRange: boolean | null` (`a?.buyingOption?.cashCarry?.range?.inRange ?? null`) directly after `availableForCashCarry`.
 - `projectMultiItemStock` rows gain the same field; `null` in the 405 and not-found branches.
 - No synthetic error entry. The field plus the tool descriptions ("`inRange: false` means the item is not sold at that store or in that market") are enough for a client to explain the difference between "out of stock" and "not sold here".
-- Tools that spread `projectStock` (`check_store_stock`, `compare_store_stock`) get the field for free. `check_multi_item_stock` maps fields explicitly and adds `inRange: row.inRange`. `find_best_store_for_item`, `find_best_store_for_cart` and `check_cart_availability` output shapes are unchanged.
+- Tools that spread `projectStock` (`check_store_stock`, `compare_store_stock`) get the field for free. `check_multi_item_stock` maps fields explicitly and adds `inRange: row.inRange`. `find_best_store_for_item` and `find_best_store_for_cart` output shapes are unchanged.
+- `check_cart_availability` keeps its own projection (deduplication is issue #1) but gets the minimal fix the cross-market case needs: the quantity read at `src/tools/check_cart_availability.ts:62` becomes `a.buyingOption?.cashCarry?.availability?.quantity ?? null`, `sufficient` becomes `inStock !== null && inStock >= item.quantity`, and every cart row gains `inRange: boolean | null`. Verified 2026-09-15: `/sto/095?itemNos=20522046` returns a row with `range.inRange: false` and no `availability` object, and the current handler throws `TypeError: Cannot read properties of undefined (reading 'quantity')` on it.
 
 ### 5. Tools
 
-- Hand-written JSON schemas: every `countryCode` `enum` becomes `[...COUNTRY_CODES]` so it cannot drift from the zod enum. `langCode` loses `default: "en"` and gains a `description`: `"Two-letter language code. Defaults to the country's language: en for US and CA, no for NO."`
+- Hand-written JSON schemas: every `countryCode` `enum` becomes `[...COUNTRY_CODES]` so it cannot drift from the zod enum. On `search_products` and `get_product_details`, `langCode` loses `default: "en"` and gains a `description`: `"Two-letter language code. Defaults to the country's language: en for US and CA, no for NO."`; `countryCode` gets a description and its JSON default is corrected from `"us"` to `"US"` (the zod default; harmless either way because input is upper-cased). `check_store_stock`'s JSON default gets the same one-character correction.
 - Descriptions: replace `('US' or 'CA')` with `('US', 'CA' or 'NO')` in `list_stores`, `compare_store_stock`, `find_best_store_for_item`, `find_best_store_for_cart`. `check_store_stock`, `compare_store_stock` and `check_multi_item_stock` descriptions mention `inRange`.
 - `list_stores`: iterate `STORES` (filtered by country when given) and emit `{ storeId, storeLabel, countryCode }` from the record. The nested-ternary CA set is deleted. Output shape unchanged.
 - `find_best_store_for_item`, `find_best_store_for_cart`: `Object.keys(STORE_LABELS)` → `allStoreIds()`.
-- `compare_store_stock`: unchanged apart from the description; the `apiCountry` lowercasing is left for issue #11.
+- `compare_store_stock`: the `as "US" | "CA"` cast on `countryCode` becomes `as CountryCode` (it still compiled after widening, but lied for `NO`); the `apiCountry` lowercasing is left for issue #11.
 
 ### 6. Tests (`test/unit.test.ts`, append; `test/fixtures/`)
 
@@ -128,17 +133,19 @@ This reproduces every existing label exactly (`"026 (Canton, MI)"`, `"003 (Richm
 - `SearchProductsInput`: `{ query, countryCode: "NO" }` → `langCode: "no"`; `{ query }` → `"en"`; `{ query, countryCode: "NO", langCode: "en" }` → `"en"`. Same for `GetProductDetailsInput`.
 - `projectStock` with `range.inRange: false` and no quantity → `inRange: false, quantity: null`; with `inRange: true` → `true`; with no `range` → `null`. `projectMultiItemStock` equivalents, including `null` on the 405 branch.
 - `listStoresTool.handler({ countryCode: "NO" })` returns seven rows all tagged `NO`; `handler({})` returns 74 rows.
-- `smoke.mjs`: four Norway steps (search with `countryCode: "NO"` expecting `NOK`; `check_store_stock` at `095` expecting a label ending in `NO)`; `compare_store_stock` with `countryCode: "NO"` expecting 7 rows; `list_stores` with `countryCode: "NO"` expecting 7). Smoke runs stay manual (`npm run smoke`).
+- `checkCartAvailabilityTool.handler(...)` with `fetch` mocked to return a row whose `cashCarry` has `range.inRange: false` and no `availability` returns `inStock: null, sufficient: false, inRange: false, allSufficient: false` instead of throwing.
+- `smoke.mjs`: five Norway steps (search with `countryCode: "NO"` expecting `NOK` and a `/no/no/` product URL; `check_store_stock` at `095` expecting a label ending in `NO)` and `inRange: true`; `check_store_stock` at `095` with the US-only item `20522046` expecting `inRange: false` and empty `errors`; `compare_store_stock` with `countryCode: "NO"` expecting 7 rows; `list_stores` with `countryCode: "NO"` expecting 7). Smoke runs stay manual (`npm run smoke`); `smoke-http.mjs` is not extended.
 
 ### 7. Documentation (`README.md`)
 
-Minimal, scoped edits: Norway row in *Supported countries* (7 stores) and in *Store IDs*; "US and Canada only" → "US, Canada and Norway"; the `langCode` default rule in the `search_products` and `get_product_details` tables; `inRange` in the `check_store_stock` output example and a one-line explanation; a fifth example workflow (search Norway → compare across `countryCode: "NO"`); `list_stores` description mentions `NO`. The broader README sync is issue #13.
+Minimal, scoped edits: Norway row in *Supported countries* (7 stores) and in *Store IDs* (which also corrects "~50 US stores" to 52); "US and Canada only" → "US, Canada and Norway"; the three `countryCode` parameter cells that read `"US" | "CA"` gain `"NO"`; the three "all ~65 known stores" phrases become "all 74 known stores"; the `langCode` default rule in the `search_products` and `get_product_details` tables; `inRange` in the `check_store_stock` and `check_cart_availability` output examples and a one-line explanation; a fifth example workflow (search Norway → compare across `countryCode: "NO"`); the smoke-test sentence in *Build and test*; a per-market note under *Item numbers*; a Troubleshooting row. The broader README sync is issue #13.
 
 ## Backward compatibility
 
 - All existing US and CA labels are byte-identical (enforced by the fixture test).
-- All output shapes are unchanged except for the additive `inRange` field on `check_store_stock`, `compare_store_stock` and `check_multi_item_stock` rows.
-- `countryCode` enums are widened, never narrowed. `langCode` defaults change only when `countryCode` is `NO`.
+- All output shapes are unchanged except for the additive `inRange` field on `check_store_stock`, `compare_store_stock`, `check_multi_item_stock` and `check_cart_availability` rows.
+- `check_cart_availability` no longer throws for an item outside the store's range; it reports the item as insufficient.
+- `countryCode` enums are widened, never narrowed. `langCode` defaults change only when `countryCode` is `NO`. The advertised JSON default for `countryCode` on the search tools changes from `"us"` to `"US"`; both were accepted before and are accepted after.
 - Iteration order of the catalog changes as described in §2.
 
 ## Acceptance
@@ -147,4 +154,5 @@ Minimal, scoped edits: Norway row in *Supported countries* (7 stores) and in *St
 - `find_best_store_for_item { itemNo: "00263850", countryCode: "NO" }` returns ranked Norwegian stores.
 - `search_products { query: "billy", countryCode: "NO" }` returns Norwegian names and `NOK` without an explicit `langCode`.
 - `check_store_stock { itemNo: "20522046", storeId: "095" }` (a US-only item) shows `inRange: false`.
-- `npm test`, `npm run typecheck`, `npm run build` pass; `npm run smoke` prints OK for the four Norway steps.
+- `check_cart_availability { storeId: "095", items: [{ itemNo: "20522046" }] }` returns `allSufficient: false` with `inRange: false` on the row, and does not throw.
+- `npm test`, `npm run typecheck`, `npm run build` pass; `npm run smoke` prints OK for the five Norway steps.

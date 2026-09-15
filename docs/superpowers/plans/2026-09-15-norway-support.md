@@ -15,7 +15,8 @@
 - Work on branch `feat/norway-support` in `/Users/georg/playground/ikea-mcp/clones/ikea-mcp-agent-1`. Never commit to `master`.
 - All existing US and CA store labels must remain byte-identical (e.g. `"026 (Canton, MI)"`, `"003 (Richmond, BC, CA)"`).
 - Norwegian labels have the form `"<storeId> (<name>, <city>, NO)"`, e.g. `"095 (Furuset, Oslo, NO)"`.
-- Do not modify `src/tools/check_cart_availability.ts`, `src/utils/http.ts`, `src/http.ts`, `src/server.ts`, or `package.json` version. Those belong to other issues.
+- Do not modify `src/utils/http.ts`, `src/http.ts`, `src/server.ts`, or `package.json`. Those belong to other issues. `src/tools/check_cart_availability.ts` is touched only as Task 4 describes (null guard + `inRange`), nothing more.
+- Test output: `npm test` uses Node's `spec` reporter, whose summary lines look like `ℹ pass 55`. Every command in this plan that greps or tails test output therefore sets `NODE_OPTIONS=--test-reporter=tap`, which prints `# pass 55` / `# fail 0` and `not ok N - name` for failures. Use the commands exactly as written.
 - Imports between `src` files use the `.js` suffix (`from "../data/countries.js"`), even though the sources are `.ts`.
 - Every code task ends with `npm test`, `npm run typecheck` and `npm run build` passing.
 - Tests are appended to `test/unit.test.ts` (the repo's single test file). Add imports at the top of the file only when a task says so.
@@ -111,7 +112,7 @@ export function defaultLangCode(countryCode: string): string {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
 Expected: `# pass 55`, `# fail 0` (51 existing + 4 new); typecheck and build exit 0 with no output.
 
 - [ ] **Step 5: Commit**
@@ -130,7 +131,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/data/stores.ts` (rewrite the whole file)
 - Existing fixture (already committed, do not regenerate): `test/fixtures/store-labels-v1.6.2.json` — the exact `STORE_LABELS` object from before this change.
-- Test: `test/unit.test.ts` (modify the `storeIdsByCountry` block at lines ~404–439, append new tests)
+- Test: `test/unit.test.ts` (modify the `storeIdsByCountry` block at lines ~405–440, append new tests)
 
 **Interfaces:**
 - Consumes: `CountryCode` from `src/data/countries.ts` (Task 1).
@@ -384,7 +385,7 @@ export function storeIdsByCountry(countryCode: CountryCode): string[] {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
 Expected: `# pass 60`, `# fail 0` (55 from Task 1, minus 3 replaced, plus 4 replacements, plus 4 appended); typecheck and build exit 0. If the fixture test fails, the diff it prints names the label that changed: fix the record, never the fixture.
 
 Note: `npm run typecheck` will still pass at this point because the tools call `storeIdsByCountry` with a value typed `"US" | "CA"`, which is assignable to `CountryCode`. Task 5 widens the tools.
@@ -407,7 +408,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 3: Schemas — widen the country enum, default langCode from country
 
 **Files:**
-- Modify: `src/schemas/index.ts` (lines 1, 34–53, 86–90)
+- Modify: `src/schemas/index.ts` (lines 1, 34–54, 86–90)
 - Test: `test/unit.test.ts` (append)
 
 **Interfaces:**
@@ -416,19 +417,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Find the existing import block for schemas in `test/unit.test.ts` (it starts `import { CompareStoreStockInput, ...` around line 364, mid-file) and make sure `SearchProductsInput`, `GetProductDetailsInput` and `ListStoresInput` are in it. If the line is
+`test/unit.test.ts` imports the schemas mid-file (originally line 364; it has shifted a few lines down after Tasks 1–2). The line is exactly:
 
 ```ts
-import { CompareStoreStockInput, CheckCartAvailabilityInput, FindBestStoreForCartInput, FindBestStoreInput } from "../src/schemas/index.js";
+import { CompareStoreStockInput, CheckCartAvailabilityInput, FindBestStoreForCartInput, ListStoresInput, CheckMultiItemStockInput, FindBestStoreInput } from "../src/schemas/index.js";
 ```
 
-change it to
+Replace it with (only `SearchProductsInput` and `GetProductDetailsInput` are new; `ListStoresInput` is already there, do not import it twice):
 
 ```ts
-import { CompareStoreStockInput, CheckCartAvailabilityInput, FindBestStoreForCartInput, FindBestStoreInput, SearchProductsInput, GetProductDetailsInput, ListStoresInput } from "../src/schemas/index.js";
+import { CompareStoreStockInput, CheckCartAvailabilityInput, FindBestStoreForCartInput, ListStoresInput, CheckMultiItemStockInput, FindBestStoreInput, SearchProductsInput, GetProductDetailsInput } from "../src/schemas/index.js";
 ```
-
-(If the existing import differs, add the three names to it rather than adding a second import of the same module.)
 
 Append at the end of the file:
 
@@ -474,7 +473,7 @@ test("GetProductDetailsInput — langCode defaults to the country's language", (
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test 2>&1 | grep -E "^not ok|# (pass|fail)"`
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | grep -E "^not ok|# (pass|fail)"`
 Expected: `not ok` for the four tests that use `NO` or expect `"no"` (`ListStoresInput — accepts lowercase no`, `CompareStoreStockInput — countryCode NO`, both `langCode defaults` tests); `# fail 4`.
 
 - [ ] **Step 3: Implement**
@@ -535,8 +534,8 @@ Leave every other schema unchanged. `CountryCode2` (free-form two letters) stays
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
-Expected: `# pass 66`, `# fail 0`; typecheck and build exit 0. If typecheck complains that `d.countryCode` may be `unknown`, the `CountryCode2` preprocess type has changed: keep `CountryCode2 = z.preprocess(toUpper, z.string().length(2))` and use `String(d.countryCode)` in the transform.
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
+Expected: `# pass 66`, `# fail 0`; typecheck and build exit 0 (`d.countryCode` infers as `string` through the preprocess + default chain).
 
 - [ ] **Step 5: Commit**
 
@@ -552,15 +551,22 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: `inRange` in stock projections
 
 **Files:**
-- Modify: `src/services/ikea.ts` (type `StockCashCarry` ~line 76; `projectStock` ~line 128; `projectMultiItemStock` ~line 139)
-- Modify: `src/tools/check_multi_item_stock.ts:20-28`
+- Modify: `src/services/ikea.ts` (type `StockCashCarry` lines 79–86; `projectStock` ~line 128; `projectMultiItemStock` ~line 139)
+- Modify: `src/tools/check_multi_item_stock.ts:7,19-28`
+- Modify: `src/tools/check_cart_availability.ts:49-83` (null guard + `inRange`, nothing else)
 - Test: `test/unit.test.ts` (update the test at line ~37, append)
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: `projectStock(...)` and each row of `projectMultiItemStock(...)` include `inRange: boolean | null`. `check_multi_item_stock` rows include `inRange`.
+- Produces: `projectStock(...)` and each row of `projectMultiItemStock(...)` include `inRange: boolean | null`. `check_multi_item_stock` rows and `check_cart_availability` item rows include `inRange`. `check_cart_availability` no longer throws when the upstream row has no `availability` object.
 
 - [ ] **Step 1: Update the shape test and add failing tests**
+
+Change the first line of `test/unit.test.ts` from `import { test } from "node:test";` to `import { test, mock } from "node:test";` and add, next to the other tool imports added in earlier tasks (or after the `countries.js` import if none exist yet):
+
+```ts
+import { checkCartAvailabilityTool } from "../src/tools/check_cart_availability.js";
+```
 
 In `test/unit.test.ts`, the test `projectStock — stocked item returns correct shape` (line ~37) asserts the whole object. Change its expected object to include `inRange: null` right after `availableForCashCarry` (the fixture has no `range`, so `null` is correct):
 
@@ -639,12 +645,34 @@ test("projectMultiItemStock — inRange per row, null on 405 and not-found", () 
   assert.equal(notInRange[0].inRange, false);
   assert.equal(notInRange[0].quantity, null);
 });
+
+test("check_cart_availability — item outside the store's range is insufficient, not a crash", async () => {
+  const body = withRange(false);
+  const fetchMock = mock.method(globalThis, "fetch", async () =>
+    new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
+  );
+  try {
+    const res = await checkCartAvailabilityTool.handler({ storeId: "095", items: [{ itemNo: "20522046", quantity: 1 }] });
+    const out = JSON.parse(res.content[0].text) as {
+      allSufficient: boolean;
+      items: { inStock: number | null; sufficient: boolean; inRange: boolean | null; errors: unknown[] }[];
+    };
+    assert.equal(out.allSufficient, false);
+    assert.equal(out.items[0].inStock, null);
+    assert.equal(out.items[0].sufficient, false);
+    assert.equal(out.items[0].inRange, false);
+    assert.deepEqual(out.items[0].errors, []);
+    assert.equal(fetchMock.mock.callCount(), 1);
+  } finally {
+    fetchMock.mock.restore();
+  }
+});
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npm run typecheck 2>&1 | head -5`
-Expected: type errors that `range` does not exist on the cash-carry type and that `inRange` does not exist on the projection results.
+Expected: type errors that `range` does not exist on the cash-carry type and that `inRange` does not exist on the projection results. (If you run the tests instead, the cart test fails with `TypeError: Cannot read properties of undefined (reading 'quantity')`, which is the bug this task fixes.)
 
 - [ ] **Step 3: Implement**
 
@@ -688,20 +716,44 @@ Update the description in the same file to:
     "Check cash-and-carry stock for multiple items at a single IKEA store. inRange: false on a row means the item is not sold at that store or in that country's market.",
 ```
 
+In `src/tools/check_cart_availability.ts`, inside `input.items.map((item) => { ... })`, make exactly these changes and no others:
+
+- In the `if (storeError)` branch's returned object, add `inRange: null as boolean | null,` directly after `inStock: null as number | null,`.
+- Replace the `if (a) { ... }` branch with:
+
+```ts
+      if (a) {
+        const inStock = a.buyingOption?.cashCarry?.availability?.quantity ?? null;
+        return {
+          itemNo: item.itemNo,
+          quantity: item.quantity,
+          inStock,
+          inRange: a.buyingOption?.cashCarry?.range?.inRange ?? null,
+          sufficient: inStock !== null && inStock >= item.quantity,
+          eligibleForStockNotification: a.buyingOption?.cashCarry?.eligibleForStockNotification ?? null,
+          errors: [] as { code: number; message: string; meaning: string }[],
+        };
+      }
+```
+
+- In the final (not-found) returned object, add `inRange: null as boolean | null,` directly after `inStock: null as number | null,`.
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
-Expected: `# pass 70`, `# fail 0`; typecheck and build exit 0.
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
+Expected: `# pass 71`, `# fail 0`; typecheck and build exit 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/services/ikea.ts src/tools/check_multi_item_stock.ts test/unit.test.ts
-git commit -m "feat: expose inRange in stock projections
+git add src/services/ikea.ts src/tools/check_multi_item_stock.ts src/tools/check_cart_availability.ts test/unit.test.ts
+git commit -m "feat: expose inRange in stock projections; guard cart tool against out-of-range items
 
 Distinguishes 'not sold at this store / market' (inRange false, no
 quantity, no error) from 'unknown'. Additive field on check_store_stock,
-compare_store_stock and check_multi_item_stock rows.
+compare_store_stock, check_multi_item_stock and check_cart_availability
+rows. check_cart_availability previously threw a TypeError on such rows
+because the upstream payload omits the availability object.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -790,7 +842,7 @@ test("tool schemas — search tools document the langCode default and no longer 
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npm test 2>&1 | grep -E "^not ok|# (pass|fail)"`
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | grep -E "^not ok|# (pass|fail)"`
 Expected: `not ok` for `list_stores — countryCode NO` (currently returns zero rows because the handler tags via the old CA set), `list_stores — no filter returns all 74` (tags NO stores as US), both `tool schemas` tests; `# fail 4`. If `npm run typecheck` fails first because `listStoresTool.handler` returns a union, that is also an acceptable red state.
 
 - [ ] **Step 3: Implement**
@@ -853,12 +905,12 @@ In `src/tools/search_products.ts`, replace the two schema properties:
 
 In `src/tools/get_product_details.ts`, replace the same two properties with the same two lines.
 
-In `src/tools/check_store_stock.ts`, description → `"Check cash-and-carry stock availability for an item at a specific IKEA store. inRange: false means the item is not sold at that store or in that country's market."`
+In `src/tools/check_store_stock.ts`, description → `"Check cash-and-carry stock availability for an item at a specific IKEA store. inRange: false means the item is not sold at that store or in that country's market."` and change the JSON schema line `countryCode: { type: "string", default: "us" },` to `countryCode: { type: "string", default: "US" },` (consistency with the search tools; the parameter itself is unchanged).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
-Expected: `# pass 75`, `# fail 0`; typecheck and build exit 0. Also run `grep -rn "STORE_LABELS\|'US' or 'CA'" src/tools/` and expect no output.
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8 && npm run typecheck && npm run build`
+Expected: `# pass 76`, `# fail 0`; typecheck and build exit 0. Also run `grep -rn "STORE_LABELS\|'US' or 'CA'" src/tools/` and expect no output.
 
 - [ ] **Step 5: Commit**
 
@@ -950,19 +1002,21 @@ Expected: the last five lines start with `search_products[NO] OK`, `check_store_
 
 - [ ] **Step 3: Edit `README.md`**
 
-Make exactly these edits (search for the quoted text; each occurs once):
+Make exactly these edits. Line numbers refer to the unmodified README; search for the quoted text and confirm the location before editing. Each quoted string occurs once unless the item says otherwise.
 
 1. In **MVP limitations**, after the line `- Canada store coverage is complete (15 stores)` insert:
    `- Norway coverage is the 7 full-size stores; planning studios and the Oslo city-centre store are excluded (no cash-and-carry stock)`
 
-2. In the **`search_products`** input table, replace the row
-   `| \`langCode\` | string | \`"en"\` | no |`
-   with
+2. The row `| \`langCode\` | string | \`"en"\` | no |` occurs **twice** (line 42 in the `search_products` table and line 74 in the `get_product_details` table). Replace **both** with
    `| \`langCode\` | string | country default: \`"en"\` for US/CA, \`"no"\` for NO | no |`
-   Do the same replacement in the **`get_product_details`** input table.
 
-3. In the **`check_store_stock`** output example, after the line `  "availableForCashCarry": true,` insert `  "inRange": true,`; in the error example after `  "availableForCashCarry": false,` insert `  "inRange": null,`. After the error example's closing ```` ``` ```` add the paragraph:
+3. In the **`check_store_stock`** output example (line 110, inside the `### \`check_store_stock\`` section; the same text also appears at lines 177 and 210 with a deeper indent in other sections, leave those alone), after `  "availableForCashCarry": true,` insert `  "inRange": true,`. In the error example just below (line 121, unique), after `  "availableForCashCarry": false,` insert `  "inRange": null,`. After that error example's closing ```` ``` ```` add the paragraph:
    `\`inRange: false\` with an empty \`errors\` array means the item is not sold at that store or in that country's market (for example a US item number checked against a Norwegian store). Search with the matching \`countryCode\` to get a local item number.`
+   In the **`check_cart_availability`** output example (line 245, `      "inStock": 42,`), insert `      "inRange": true,` directly after that line.
+
+3b. The parameter cell `` `"US"` \| `"CA"` `` occurs **three times** (lines 139, 199, 269, the `countryCode` rows of `compare_store_stock`, `find_best_store_for_item`, `find_best_store_for_cart`). Replace all three with `` `"US"` \| `"CA"` \| `"NO"` ``.
+
+3c. The phrase `all ~65 known stores` occurs **three times** (lines 202, 272, 336). Replace all three with `all 74 known stores`.
 
 4. In **Example workflows**, after workflow 4's closing paragraph (`Use \`check_cart_availability\` to then verify exact quantities at the chosen store.`) and before the `---`, add:
 
@@ -980,7 +1034,7 @@ Make exactly these edits (search for the quoted text; each occurs once):
 
 5. In **Build and test**, replace `\`smoke.mjs\` exercises all 4 tools against the live IKEA API and prints pass/fail lines to stdout.` with `\`smoke.mjs\` (\`npm run smoke\`) exercises the tools against the live IKEA API, including five Norway steps, and prints pass/fail lines to stdout.`
 
-6. In **Store IDs**, after the sentence ending `(all probed against the stock API).` add: ` 7 Norway stores confirmed from \`ikea.com/no/no/stores/\` pages (store code in the page's embedded business-unit JSON), all probed against the stock API.` In the format list add a line: `- Norway: \`"095"\` (Furuset, Oslo, NO), \`"007"\` (Sørlandet, Kristiansand, NO)`
+6. In **Store IDs** (line 471), replace `~50 US stores confirmed` with `52 US stores confirmed`, and after the sentence ending `(all probed against the stock API).` add: ` 7 Norway stores confirmed from \`ikea.com/no/no/stores/\` pages (store code in the page's embedded business-unit JSON), all probed against the stock API.` The format list below it is organised by ID format, not by country, so do not add a bullet; instead add this paragraph after the list (before `An invalid or unsupported \`storeId\` returns a 405 error`): `Norwegian IDs use the same 3-digit formats, e.g. \`"095"\` (Furuset, Oslo, NO) and the leading-zero \`"007"\` (Sørlandet, Kristiansand, NO).`
 
 7. In **Limitations**, replace `- US and Canada only — no other countries supported.` with `- US, Canada and Norway only — no other countries supported.` and in the fan-out line replace `\`"CA"\` ≈ 15)` with `\`"CA"\` ≈ 15, \`"NO"\` = 7)`.
 
@@ -992,8 +1046,16 @@ Make exactly these edits (search for the quoted text; each occurs once):
 
 - [ ] **Step 4: Verify**
 
-Run: `grep -c "NO" README.md && grep -n "inRange" README.md | head && npm test 2>&1 | tail -3`
-Expected: several matches for `NO`, at least four lines mentioning `inRange`, tests still `# fail 0`.
+Run:
+
+```bash
+grep -n "~65\|~50 US" README.md            # expect NO output
+grep -n 'CA"` | — |' README.md             # expect NO output (all three enum cells now continue with "NO")
+grep -c "inRange" README.md                # expect 5 or more
+NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8
+```
+
+Expected: the first two greps print nothing, the count is at least 5, tests still `# pass 76`, `# fail 0`.
 
 - [ ] **Step 5: Commit**
 
@@ -1012,13 +1074,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Full green run**
 
-Run: `npm test 2>&1 | tail -4 && npm run typecheck && npm run build && git status --short`
-Expected: `# pass 75`, `# fail 0`; typecheck and build silent; `git status --short` prints nothing (clean tree).
+Run: `NODE_OPTIONS=--test-reporter=tap npm test 2>&1 | tail -8 && npm run typecheck && npm run build && git status --short`
+Expected: `# pass 76`, `# fail 0`; typecheck and build silent; `git status --short` prints nothing (clean tree).
 
 - [ ] **Step 2: Diff review against the spec**
 
 Run: `git log --oneline master..HEAD && git diff master --stat`
-Expected: six feature commits after the spec/plan commit; changed files limited to `src/data/countries.ts`, `src/data/stores.ts`, `src/schemas/index.ts`, `src/services/ikea.ts`, the seven tool files named in Tasks 4–5, `test/unit.test.ts`, `test/fixtures/store-labels-v1.6.2.json`, `smoke.mjs`, `README.md`, and the two docs files. `check_cart_availability.ts`, `http.ts`, `server.ts`, `utils/http.ts` and `package.json` must not appear.
+Expected: six feature commits after the spec/plan commit; changed files limited to `src/data/countries.ts`, `src/data/stores.ts`, `src/schemas/index.ts`, `src/services/ikea.ts`, the eight tool files named in Tasks 4–5 (`check_multi_item_stock`, `check_cart_availability`, `list_stores`, `compare_store_stock`, `find_best_store_for_item`, `find_best_store_for_cart`, `search_products`, `get_product_details`, `check_store_stock`), `test/unit.test.ts`, `test/fixtures/store-labels-v1.6.2.json`, `smoke.mjs`, `README.md`, and the two docs files. `http.ts`, `server.ts`, `utils/http.ts` and `package.json` must not appear. The `check_cart_availability.ts` diff must be limited to the `items.map` callback (run `git diff master -- src/tools/check_cart_availability.ts` and confirm).
 
 - [ ] **Step 3: Spot-check the built server over stdio**
 
